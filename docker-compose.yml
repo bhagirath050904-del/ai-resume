@@ -1,0 +1,72 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://ranker:ranker@db:5432/resume_ranker
+      - DATABASE_URL_SYNC=postgresql://ranker:ranker@db:5432/resume_ranker
+      - REDIS_URL=redis://redis:6379/0
+      - UPLOAD_DIR=/app/uploads
+      - SPACY_MODEL=en_core_web_sm
+      - EMBEDDING_MODEL=all-MiniLM-L6-v2
+      - DEBUG=false
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - uploads:/app/uploads
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: celery -A resume_ranker.tasks.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://ranker:ranker@db:5432/resume_ranker
+      - DATABASE_URL_SYNC=postgresql://ranker:ranker@db:5432/resume_ranker
+      - REDIS_URL=redis://redis:6379/0
+      - UPLOAD_DIR=/app/uploads
+      - SPACY_MODEL=en_core_web_sm
+      - EMBEDDING_MODEL=all-MiniLM-L6-v2
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - uploads:/app/uploads
+    restart: unless-stopped
+
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: resume_ranker
+      POSTGRES_USER: ranker
+      POSTGRES_PASSWORD: ranker
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ranker -d resume_ranker"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  uploads:
+  redisdata:
